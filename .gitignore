@@ -1,0 +1,6 @@
+venv/
+myenv/
+__pycache__/
+*.pyc
+*.pth
+dataset/
