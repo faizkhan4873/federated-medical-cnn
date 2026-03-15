@@ -1,53 +1,48 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
+from models.cnn_model import CNNModel
+from utils.dataset_loader import load_data
+from utils.metrics import evaluate, print_metrics
 
-class CNNModel(nn.Module):
-    def __init__(self, num_classes=2, dropout=0.5):
-        super(CNNModel, self).__init__()
+# ── Device ─────────────────────────────────────────────────────────────────────
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
-        # Convolution layers
-        self.conv_layers = nn.Sequential(
-            # Block 1
-            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),        # -> (B, 32, 112, 112)
+# ── Data ───────────────────────────────────────────────────────────────────────
+train_loader, test_loader = load_data()
 
-            # Block 2
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),        # -> (B, 64, 56, 56)
+# ── Model ──────────────────────────────────────────────────────────────────────
+model     = CNNModel().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-            # Block 3
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),        # -> (B, 128, 28, 28)
+# ── Training loop ──────────────────────────────────────────────────────────────
+epochs = 10
 
-            # Block 4
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),        # -> (B, 256, 14, 14)
-        )
+for epoch in range(epochs):
+    model.train()
+    running_loss = 0.0
 
-        # AdaptiveAvgPool removes the hardcoded fc input size —
-        # output is always (B, 256, 4, 4) regardless of input resolution
-        self.pool = nn.AdaptiveAvgPool2d((4, 4))
+    for images, labels in train_loader:
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-        # Fully connected layers
-        self.fc_layers = nn.Sequential(
-            nn.Linear(256 * 4 * 4, 512),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(512, num_classes),
-        )
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss    = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
 
-    def forward(self, x):
-        x = self.conv_layers(x)
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc_layers(x)
-        return x
+        running_loss += loss.item()
+
+    print(f"Epoch {epoch + 1}/{epochs}  Loss: {running_loss:.4f}")
+
+# ── Evaluation ─────────────────────────────────────────────────────────────────
+metrics = evaluate(model, test_loader, device)
+print_metrics(metrics, prefix="Test")
+
+# ── Save model ─────────────────────────────────────────────────────────────────
+torch.save(model.state_dict(), "cnn_medical_model.pth")
+print("Model saved: cnn_medical_model.pth")
